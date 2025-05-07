@@ -2,6 +2,9 @@
 
 Este projeto automatiza a **validação de credenciais de usuários** e a **coleta de dados funcionais**, utilizando uma planilha Excel como entrada e gerando resultados atualizados com logs detalhados. Ele é usado para validar credenciais coletadas por meio de OSINT e suas respectivas validações em sistemas institucionais.
 
+🔒 **Observação de Segurança**
+- Este projeto interage com sistemas institucionais internos e utiliza APIs privadas. Seu uso é restrito a ambientes autorizados, seguindo políticas rígidas de privacidade e segurança da informação. URLs dos sistemas e APIs foram mascaradas neste projeto público para preservar a confidencialidade.
+
 ## 🚀 Funcionalidades
 
 - **Consulta de dados funcionais** (CPF, Nome Completo e E-mail Institucional) a partir de:
@@ -50,5 +53,3 @@ Este projeto automatiza a **validação de credenciais de usuários** e a **cole
    - Registra logs completos da execução.
    - Remove arquivos temporários.
 
-🔒 **Observação de Segurança**
-- Este projeto interage com sistemas institucionais internos e utiliza APIs privadas. Seu uso é restrito a ambientes autorizados, seguindo políticas rígidas de privacidade e segurança da informação. URLs dos sistemas e APIs foram mascaradas neste projeto público para preservar a confidencialidade.

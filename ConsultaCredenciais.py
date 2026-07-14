@@ -1,4 +1,4 @@
-﻿# === IMPORTACOES ===
+# === IMPORTACOES ===
 import json
 import logging
 import math
@@ -40,9 +40,9 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 script_dir = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
 arquivo_excel = os.path.join(script_dir, "Credenciais.xlsx")
 
-LOGIN_URL_MS = "https://ms.exemplo.local/login"
-LOGIN_URL_AD = "https://rh.exemplo.local"
-SUCCESS_URL_AD = "https://portal.exemplo.local/Portal/Portal"
+LOGIN_URL_MS = "http://ms.policiamilitar.sp.gov.br/login.aspx"
+LOGIN_URL_AD = "http://www.rh.intranet.policiamilitar.sp.gov.br"
+SUCCESS_URL_AD = "https://sgp-prod.intranet.policiamilitar.sp.gov.br/Portal/Portal"
 
 COL_EMAIL_INFORMADO = "A"
 COL_SENHA = "B"
@@ -57,6 +57,10 @@ COL_MSG_AD = "J"
 COL_ORIGEM_CPF = "K"
 COL_STATUS_PROCESSAMENTO = "L"
 COL_DATA_TESTE = "M"
+COL_URL_VAZAMENTO = "N"
+
+HEADER_JA_IDENTIFICADO_MES_ANTIGO = "ja identificado neste mes"
+HEADER_CONTAGEM_IDENTIFICACOES = "Identificado quantas vezes"
 
 HEADERS = [
     "E-mail informado",
@@ -72,6 +76,7 @@ HEADERS = [
     "Origem do CPF",
     "Status do processamento",
     "Data e hora do teste",
+    "URL de vazamento",
 ]
 
 HEADERS_SAIDA = [
@@ -83,10 +88,52 @@ HEADERS_SAIDA = [
     "AD",
     "Mensagem do MS",
     "Mensagem do AD",
+    "URL de vazamento",
 ]
 
+HEADERS_MENSAL = [
+    "Nome",
+    "E-mail",
+    "CPF",
+    "Senha",
+    "MS",
+    "AD",
+    "Mensagem do MS",
+    "Mensagem do AD",
+    HEADER_CONTAGEM_IDENTIFICACOES,
+    "Primeira identificação",
+    "Data desta identificação",
+    "Dia da semana",
+    "URL de vazamento",
+]
+
+MESES_PT = {
+    1: "JAN",
+    2: "FEV",
+    3: "MAR",
+    4: "ABR",
+    5: "MAI",
+    6: "JUN",
+    7: "JUL",
+    8: "AGO",
+    9: "SET",
+    10: "OUT",
+    11: "NOV",
+    12: "DEZ",
+}
+
+DIAS_SEMANA_PT = {
+    0: "Segunda-feira",
+    1: "Terça-feira",
+    2: "Quarta-feira",
+    3: "Quinta-feira",
+    4: "Sexta-feira",
+    5: "Sábado",
+    6: "Domingo",
+}
+
 RESULTADO_SIM = "SIM"
-RESULTADO_NAO = "NÃƒO"
+RESULTADO_NAO = "NÃO"
 RESULTADO_ERRO = "ERRO"
 RESULTADO_NT = "N/T"
 RESULTADO_INCONCLUSIVO = "INCONCLUSIVO"
@@ -389,8 +436,8 @@ class ClienteAPIsInternas:
                 log_event(self.logger, logging.INFO, "API", linha, "API", cpf, operacao, "tentativa", duracao, f"Tentativa {tentativa}")
         return ResultadoOperacao(ERRO_INTERNO, "Erro inesperado na consulta da API.")
 
-    def buscar_cpf_por_re(self, identificador_re, linha=None):
-        url = f"https://api-interna.exemplo.local/api/v1/entidade/re/{identificador_re}/dadosResumidos"
+    def buscar_cpf_por_re(self, re_militar, linha=None):
+        url = f"https://webservices.intranet.policiamilitar.sp.gov.br/pmesp.cdpm/api/v1/PolicialMilitar/re/{re_militar}/dadosResumidos"
         resposta = self._get_json(url, "buscar_cpf_por_re", linha=linha)
         if resposta.status != SUCESSO:
             return resposta
@@ -404,7 +451,7 @@ class ClienteAPIsInternas:
         return ResultadoOperacao(SUCESSO, "CPF encontrado pelo RE.", cpf_normalizado.valor)
 
     def buscar_nome_por_cpf(self, cpf, linha=None):
-        url = f"https://api-interna.exemplo.local/api/v1/entidade/cpf/{cpf}/dadosResumidos"
+        url = f"https://webservices.intranet.policiamilitar.sp.gov.br/pmesp.cdpm/api/v1/PolicialMilitar/cpf/{cpf}/dadosResumidos"
         resposta = self._get_json(url, "buscar_nome_por_cpf", linha=linha, cpf=cpf)
         if resposta.status != SUCESSO:
             return resposta
@@ -417,7 +464,7 @@ class ClienteAPIsInternas:
         return ResultadoOperacao(SUCESSO, "Nome encontrado.", str(nome).strip())
 
     def buscar_email_por_cpf(self, cpf, linha=None):
-        url = f"https://api-interna.exemplo.local/api/v1/entidade/cpf/{cpf}/informacaoContato"
+        url = f"https://webservices.intranet.policiamilitar.sp.gov.br/pmesp.cdpm/api/v1/PolicialMilitar/cpf/{cpf}/informacaoContato"
         resposta = self._get_json(url, "buscar_email_por_cpf", linha=linha, cpf=cpf)
         if resposta.status != SUCESSO:
             return resposta
@@ -475,33 +522,47 @@ def validar_arquivo_entrada(caminho):
         raise ValueError("Planilha sem linhas de dados.")
     if ws.max_column < 3:
         raise ValueError("Planilha precisa ter ao menos as colunas A, B e C.")
-    headers = [normalizar_header(ws.cell(1, col).value) for col in range(1, min(ws.max_column, 13) + 1)]
+    headers = [normalizar_header(ws.cell(1, col).value) for col in range(1, min(ws.max_column, len(HEADERS)) + 1)]
     layout_antigo = headers[:3] == ["email", "senha", "cpf"]
-    layout_novo = headers[:13] == [normalizar_header(h) for h in HEADERS]
+    headers_esperados = [normalizar_header(h) for h in HEADERS]
+    layout_novo = headers[:len(HEADERS)] == headers_esperados or headers[:len(HEADERS) - 1] == headers_esperados[:-1]
     if not layout_antigo and not layout_novo:
         raise ValueError("Layout da planilha nao e compativel com o esperado.")
     return wb, ws, layout_novo
 
 
+def localizar_coluna_url_vazamento(ws):
+    header_url = normalizar_header("URL de vazamento")
+    for col in range(1, ws.max_column + 1):
+        if normalizar_header(ws.cell(1, col).value) == header_url:
+            return col
+    return None
+
+
 def preparar_layout(ws, layout_novo):
     if layout_novo:
+        if normalizar_header(ws[f"{COL_URL_VAZAMENTO}1"].value) != normalizar_header("URL de vazamento"):
+            ws[f"{COL_URL_VAZAMENTO}1"] = "URL de vazamento"
         return
+    coluna_url = localizar_coluna_url_vazamento(ws)
     linhas = []
     for row in range(2, ws.max_row + 1):
         linhas.append((
             ws[f"A{row}"].value,
             ws[f"B{row}"].value,
             ws[f"C{row}"].value,
+            ws.cell(row, coluna_url).value if coluna_url else None,
         ))
     for col, header in enumerate(HEADERS, start=1):
         cell = ws.cell(1, col)
         cell.value = header
         cell.font = Font(bold=True)
         cell.alignment = Alignment(horizontal="center")
-    for offset, (email, senha, documento) in enumerate(linhas, start=2):
+    for offset, (email, senha, documento, url_vazamento) in enumerate(linhas, start=2):
         ws[f"{COL_EMAIL_INFORMADO}{offset}"] = email
         ws[f"{COL_SENHA}{offset}"] = senha
         ws[f"{COL_DOCUMENTO_INFORMADO}{offset}"] = documento
+        ws[f"{COL_URL_VAZAMENTO}{offset}"] = url_vazamento
         for col in range(4, 14):
             ws.cell(offset, col).value = None
 
@@ -551,6 +612,7 @@ def aplicar_estilos_saida(ws):
         "F": 12,
         "G": 58,
         "H": 58,
+        "I": 58,
     }
     for coluna, largura in larguras.items():
         ws.column_dimensions[coluna].width = largura
@@ -572,6 +634,7 @@ def criar_workbook_saida(ws_processado):
         ws_saida.cell(linha_saida, 6).value = ws_processado[f"{COL_RESULTADO_AD}{row}"].value
         ws_saida.cell(linha_saida, 7).value = ws_processado[f"{COL_MSG_MS}{row}"].value
         ws_saida.cell(linha_saida, 8).value = ws_processado[f"{COL_MSG_AD}{row}"].value
+        ws_saida.cell(linha_saida, 9).value = ws_processado[f"{COL_URL_VAZAMENTO}{row}"].value
     aplicar_estilos_saida(ws_saida)
     return wb_saida
 
@@ -850,8 +913,8 @@ def atualizar_contador_auth(resumo, sistema, classificacao):
 
 
 def processar_identidade(ws, cliente_api, logger, resumo):
-    print(f"ðŸ”Ž Iniciando resoluÃ§Ã£o de identidade")
-    print(f"ðŸ“„ Entrada: {arquivo_excel}\n")
+    print(f"🔎 Iniciando resolução de identidade")
+    print(f"📄 Entrada: {arquivo_excel}\n")
     for row in range(2, ws.max_row + 1):
         inicio = time.perf_counter()
         email_informado = str(ws[f"{COL_EMAIL_INFORMADO}{row}"].value or "").strip()
@@ -868,7 +931,7 @@ def processar_identidade(ws, cliente_api, logger, resumo):
             ws[f"{COL_ORIGEM_CPF}{row}"] = NAO_ENCONTRADO
             resumo["linhas_ignoradas"] += 1
             adicionar_erro(resumo, "erros_identidade", row, "Dados ausentes nas colunas A e C")
-            print(f"  âŒ Linha {row}: dados ausentes")
+            print(f"  ❌ Linha {row}: dados ausentes")
             continue
 
         cpf = None
@@ -922,8 +985,8 @@ def processar_identidade(ws, cliente_api, logger, resumo):
             ws[f"{COL_MSG_MS}{row}"] = "CPF nao encontrado."
             ws[f"{COL_MSG_AD}{row}"] = "CPF nao encontrado."
             resumo["cpfs_nao_encontrados"] += 1
-            adicionar_erro(resumo, "erros_identidade", row, "CPF nÃ£o encontrado")
-            print(f"  âŒ Linha {row}: CPF nÃ£o encontrado")
+            adicionar_erro(resumo, "erros_identidade", row, "CPF não encontrado")
+            print(f"  ❌ Linha {row}: CPF não encontrado")
             continue
 
         ws[f"{COL_CPF_RESOLVIDO}{row}"] = cpf
@@ -949,11 +1012,11 @@ def processar_identidade(ws, cliente_api, logger, resumo):
             ws[f"{COL_STATUS_PROCESSAMENTO}{row}"] = CONCLUIDO_COM_RESSALVA
         resumo["linhas_processadas"] += 1
         log_event(logger, logging.INFO, "IDENTIDADE", row, "API", cpf, "resolver_identidade", ws[f"{COL_STATUS_PROCESSAMENTO}{row}"].value, time.perf_counter() - inicio, "Identidade processada.")
-        print(f"  âœ… Linha {row}: CPF {mascarar_cpf(cpf)} resolvido ({origem})")
+        print(f"  ✅ Linha {row}: CPF {mascarar_cpf(cpf)} resolvido ({origem})")
 
 
 def processar_autenticacoes(ws, logger, resumo):
-    print("\nðŸ” Iniciando testes de autenticaÃ§Ã£o\n")
+    print("\n🔐 Iniciando testes de autenticação\n")
     driver = None
     linhas_com_driver = 0
     try:
@@ -973,7 +1036,7 @@ def processar_autenticacoes(ws, logger, resumo):
                 atualizar_contador_auth(resumo, "MS", classificacao)
                 atualizar_contador_auth(resumo, "AD", classificacao)
                 adicionar_erro(resumo, "erros_autenticacao", row, f"MS/AD - {msg}")
-                print(f"  â­ï¸ Linha {row}: nÃ£o testada ({msg})")
+                print(f"  ⏭️ Linha {row}: não testada ({msg})")
                 continue
 
             if not driver:
@@ -986,7 +1049,7 @@ def processar_autenticacoes(ws, logger, resumo):
             if not limpar_sessao_driver(driver):
                 driver = recriar_driver(driver)
 
-            print(f"  ðŸ§ª Linha {row}: testando MS | CPF {mascarar_cpf(cpf)}")
+            print(f"  🧪 Linha {row}: testando MS | CPF {mascarar_cpf(cpf)}")
             inicio_ms = time.perf_counter()
             resultado_ms = validar_login_ms(driver, cpf, senha)
             ws[f"{COL_RESULTADO_MS}{row}"] = resultado_ms.resultado_planilha
@@ -998,14 +1061,14 @@ def processar_autenticacoes(ws, logger, resumo):
             log_event(logger, logging.INFO, "AUTENTICACAO", row, "MS", cpf, "validar_login_ms", resultado_ms.classificacao, time.perf_counter() - inicio_ms, mensagem_log_ms)
             if resultado_ms.classificacao != SUCESSO:
                 adicionar_erro(resumo, "erros_autenticacao", row, f"MS - {resultado_ms.mensagem}")
-                print(f"     âŒ MS: {resultado_ms.resultado_planilha} | {resultado_ms.mensagem}")
+                print(f"     ❌ MS: {resultado_ms.resultado_planilha} | {resultado_ms.mensagem}")
             else:
-                print(f"     âœ… MS: SIM")
+                print(f"     ✅ MS: SIM")
 
             if resultado_ms.classificacao in CLASSIFICACOES_TECNICAS or not limpar_sessao_driver(driver):
                 driver = recriar_driver(driver)
 
-            print(f"  ðŸ§ª Linha {row}: testando AD | CPF {mascarar_cpf(cpf)}")
+            print(f"  🧪 Linha {row}: testando AD | CPF {mascarar_cpf(cpf)}")
             inicio_ad = time.perf_counter()
             resultado_ad = validar_login_ad(driver, cpf, senha)
             ws[f"{COL_RESULTADO_AD}{row}"] = resultado_ad.resultado_planilha
@@ -1017,9 +1080,9 @@ def processar_autenticacoes(ws, logger, resumo):
             log_event(logger, logging.INFO, "AUTENTICACAO", row, "AD", cpf, "validar_login_ad", resultado_ad.classificacao, time.perf_counter() - inicio_ad, mensagem_log_ad)
             if resultado_ad.classificacao != SUCESSO:
                 adicionar_erro(resumo, "erros_autenticacao", row, f"AD - {resultado_ad.mensagem}")
-                print(f"     âŒ AD: {resultado_ad.resultado_planilha} | {resultado_ad.mensagem}")
+                print(f"     ❌ AD: {resultado_ad.resultado_planilha} | {resultado_ad.mensagem}")
             else:
-                print(f"     âœ… AD: SIM")
+                print(f"     ✅ AD: SIM")
 
             if resultado_ad.classificacao in CLASSIFICACOES_TECNICAS or not limpar_sessao_driver(driver):
                 driver = recriar_driver(driver)
@@ -1091,32 +1154,338 @@ def salvar_atomicamente(wb, destino):
         raise
 
 
-def escrever_log_resumido(caminho, titulo_erros, erros, linhas_sucesso, linhas_falha, resultado_final):
+def obter_competencia_atual(data_execucao):
+    mes = MESES_PT[data_execucao.month]
+    ano = f"{data_execucao.year % 100:02d}"
+    return f"{mes}{ano}"
+
+
+def obter_dia_semana_portugues(data_execucao):
+    return DIAS_SEMANA_PT[data_execucao.weekday()]
+
+
+def normalizar_cpf_para_comparacao(valor):
+    resultado = normalizar_cpf(valor)
+    if resultado.status == SUCESSO:
+        return resultado.valor
+    return None
+
+
+def resultado_eh_sim(valor):
+    return str(valor or "").strip().upper() == RESULTADO_SIM
+
+
+def extrair_registros_mensais(ws_processado, sistema):
+    col_resultado = COL_RESULTADO_AD if sistema == "AD" else COL_RESULTADO_MS
+    registros = []
+    for row in range(2, ws_processado.max_row + 1):
+        if not resultado_eh_sim(ws_processado[f"{col_resultado}{row}"].value):
+            continue
+        registros.append({
+            "nome": ws_processado[f"{COL_NOME}{row}"].value,
+            "email": ws_processado[f"{COL_EMAIL_FUNCIONAL}{row}"].value,
+            "cpf": ws_processado[f"{COL_CPF_RESOLVIDO}{row}"].value,
+            "senha": ws_processado[f"{COL_SENHA}{row}"].value,
+            "ms": ws_processado[f"{COL_RESULTADO_MS}{row}"].value,
+            "ad": ws_processado[f"{COL_RESULTADO_AD}{row}"].value,
+            "msg_ms": ws_processado[f"{COL_MSG_MS}{row}"].value,
+            "msg_ad": ws_processado[f"{COL_MSG_AD}{row}"].value,
+            "url_vazamento": ws_processado[f"{COL_URL_VAZAMENTO}{row}"].value,
+        })
+    return registros
+
+
+def criar_workbook_mensal():
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Resultado"
+    for col, header in enumerate(HEADERS_MENSAL, start=1):
+        cell = ws.cell(1, col)
+        cell.value = header
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    aplicar_formatacao_mensal(ws)
+    return wb
+
+
+def validar_layout_mensal(ws):
+    headers_existentes = [ws.cell(1, col).value for col in range(1, ws.max_column + 1)]
+    while headers_existentes and headers_existentes[-1] is None:
+        headers_existentes.pop()
+    headers_migrados = list(headers_existentes)
+    if len(headers_migrados) >= 9:
+        header_coluna_contagem = str(headers_migrados[8] or "").lower()
+        if headers_migrados[8] != HEADER_CONTAGEM_IDENTIFICACOES and "identificado" in header_coluna_contagem:
+            headers_migrados[8] = HEADER_CONTAGEM_IDENTIFICACOES
+    if headers_migrados == HEADERS_MENSAL:
+        for col, header in enumerate(HEADERS_MENSAL, start=1):
+            ws.cell(1, col).value = header
+        return
+    if headers_migrados == HEADERS_MENSAL[:len(headers_migrados)]:
+        for col in range(1, len(HEADERS_MENSAL) + 1):
+            cell = ws.cell(1, col)
+            cell.value = HEADERS_MENSAL[col - 1]
+            cell.font = Font(bold=True)
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+        return
+    raise ValueError("Layout mensal existente incompat?vel; arquivo preservado sem altera??o.")
+
+def carregar_ou_criar_arquivo_mensal(caminho):
+    if os.path.exists(caminho):
+        wb = load_workbook(caminho)
+        ws = wb.active
+        validar_layout_mensal(ws)
+        return wb, ws, False
+    wb = criar_workbook_mensal()
+    return wb, wb.active, True
+
+
+def obter_contagem_identificacoes(valor):
+    if isinstance(valor, (int, float)) and not isinstance(valor, bool):
+        try:
+            return max(int(valor), 1)
+        except (TypeError, ValueError):
+            return 1
+    texto = str(valor or "").strip()
+    if texto.isdigit():
+        return max(int(texto), 1)
+    return 1
+
+
+def indexar_cpfs_existentes(ws):
+    indice = {}
+    for row in range(2, ws.max_row + 1):
+        cpf = normalizar_cpf_para_comparacao(ws.cell(row, 3).value)
+        if not cpf:
+            continue
+        primeira = ws.cell(row, 10).value
+        if not primeira:
+            primeira = ws.cell(row, 11).value
+        contagem = obter_contagem_identificacoes(ws.cell(row, 9).value)
+        if cpf not in indice:
+            indice[cpf] = {
+                "row": row,
+                "primeira": primeira,
+                "contagem": contagem,
+            }
+        else:
+            indice[cpf]["contagem"] += contagem
+            if not indice[cpf]["primeira"] and primeira:
+                indice[cpf]["primeira"] = primeira
+    return indice
+
+
+def aplicar_formatacao_mensal(ws):
+    success_fill = PatternFill("solid", fgColor="C6EFCE")
+    failure_fill = PatternFill("solid", fgColor="FFC7CE")
+    error_fill = PatternFill("solid", fgColor="F4B183")
+    inconclusive_fill = PatternFill("solid", fgColor="FFEB9C")
+    nt_fill = PatternFill("solid", fgColor="D9D9D9")
+    resultado_fills = {
+        RESULTADO_SIM: success_fill,
+        RESULTADO_NAO: failure_fill,
+        RESULTADO_ERRO: error_fill,
+        RESULTADO_INCONCLUSIVO: inconclusive_fill,
+        RESULTADO_NT: nt_fill,
+    }
+    for col in range(1, len(HEADERS_MENSAL) + 1):
+        cell = ws.cell(1, col)
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    for row in range(2, ws.max_row + 1):
+        for col in (5, 6):
+            cell = ws.cell(row, col)
+            if cell.value in resultado_fills:
+                cell.fill = resultado_fills[cell.value]
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+        for col in (3, 9, 10, 11, 12):
+            ws.cell(row, col).alignment = Alignment(horizontal="center", vertical="center")
+        for col in (7, 8, 13):
+            ws.cell(row, col).alignment = Alignment(wrap_text=True, vertical="top")
+        for col in (10, 11):
+            ws.cell(row, col).number_format = "dd/mm/yyyy hh:mm:ss"
+    larguras = {
+        "A": 34,
+        "B": 38,
+        "C": 16,
+        "D": 28,
+        "E": 12,
+        "F": 12,
+        "G": 58,
+        "H": 58,
+        "I": 24,
+        "J": 24,
+        "K": 24,
+        "L": 18,
+        "M": 58,
+    }
+    for coluna, largura in larguras.items():
+        ws.column_dimensions[coluna].width = largura
+    ws.auto_filter.ref = f"A1:M{max(ws.max_row, 1)}"
+    ws.freeze_panes = "A2"
+
+
+def adicionar_registros_mensais(ws, registros, data_execucao):
+    indice_cpfs = indexar_cpfs_existentes(ws)
+    adicionados = 0
+    duplicados = 0
+    dia_semana = obter_dia_semana_portugues(data_execucao)
+    for registro in registros:
+        cpf_normalizado = normalizar_cpf_para_comparacao(registro["cpf"])
+        primeira_identificacao = data_execucao
+        contagem_identificacoes = 1
+        linha_nova = True
+        if cpf_normalizado and cpf_normalizado in indice_cpfs:
+            duplicados += 1
+            info_cpf = indice_cpfs[cpf_normalizado]
+            row = info_cpf["row"]
+            primeira_identificacao = info_cpf["primeira"] or data_execucao
+            contagem_identificacoes = info_cpf["contagem"] + 1
+            linha_nova = False
+        else:
+            row = ws.max_row + 1
+        valores = [
+            registro["nome"],
+            registro["email"],
+            registro["cpf"],
+            registro["senha"],
+            registro["ms"],
+            registro["ad"],
+            registro["msg_ms"],
+            registro["msg_ad"],
+            contagem_identificacoes,
+            primeira_identificacao,
+            data_execucao,
+            dia_semana,
+            registro["url_vazamento"],
+        ]
+        for col, valor in enumerate(valores, start=1):
+            ws.cell(row, col).value = valor
+        if cpf_normalizado:
+            indice_cpfs[cpf_normalizado] = {
+                "row": row,
+                "primeira": primeira_identificacao,
+                "contagem": contagem_identificacoes,
+            }
+        if linha_nova:
+            adicionados += 1
+    aplicar_formatacao_mensal(ws)
+    return adicionados, duplicados
+
+
+def salvar_workbook_mensal_atomicamente(wb, destino, linhas_antes, novas_linhas):
+    diretorio = os.path.dirname(destino)
+    temp_path = None
+    try:
+        fd, temp_path = tempfile.mkstemp(prefix=".mensal_", suffix=".xlsx", dir=diretorio)
+        os.close(fd)
+        wb.save(temp_path)
+        teste = load_workbook(temp_path, read_only=True)
+        ws_teste = teste.active
+        headers = [ws_teste.cell(1, col).value for col in range(1, len(HEADERS_MENSAL) + 1)]
+        if headers != HEADERS_MENSAL:
+            teste.close()
+            raise RuntimeError("Cabeçalhos do arquivo mensal ficaram inválidos.")
+        if ws_teste.max_column != len(HEADERS_MENSAL):
+            teste.close()
+            raise RuntimeError("Quantidade de colunas do arquivo mensal ficou inválida.")
+        if ws_teste.max_row != linhas_antes + novas_linhas:
+            teste.close()
+            raise RuntimeError("Quantidade de linhas do arquivo mensal não confere.")
+        teste.close()
+        os.replace(temp_path, destino)
+    except PermissionError:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+        raise PermissionError(f"Não foi possível atualizar {os.path.basename(destino)} porque o arquivo está aberto ou sem permissão de escrita.")
+    except Exception:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+        raise
+
+
+def atualizar_arquivo_mensal(sistema, registros, data_execucao):
+    competencia = obter_competencia_atual(data_execucao)
+    nome_arquivo = f"Credenciais_{sistema}_{competencia}.xlsx"
+    caminho = os.path.join(script_dir, nome_arquivo)
+    resultado = {
+        "sistema": sistema,
+        "arquivo": caminho,
+        "encontrados": len(registros),
+        "adicionados": 0,
+        "duplicados": 0,
+        "erro": "",
+    }
+    if not registros:
+        resultado["arquivo"] = caminho if os.path.exists(caminho) else ""
+        return resultado
+    try:
+        wb, ws, _criado = carregar_ou_criar_arquivo_mensal(caminho)
+        linhas_antes = ws.max_row
+        adicionados, duplicados = adicionar_registros_mensais(ws, registros, data_execucao)
+        salvar_workbook_mensal_atomicamente(wb, caminho, linhas_antes, adicionados)
+        resultado["adicionados"] = adicionados
+        resultado["duplicados"] = duplicados
+    except Exception as exc:
+        resultado["erro"] = str(exc)
+    return resultado
+
+
+def atualizar_consolidacoes_mensais(ws_processado, data_execucao):
+    registros_ad = extrair_registros_mensais(ws_processado, "AD")
+    registros_ms = extrair_registros_mensais(ws_processado, "MS")
+    return {
+        "AD": atualizar_arquivo_mensal("AD", registros_ad, data_execucao),
+        "MS": atualizar_arquivo_mensal("MS", registros_ms, data_execucao),
+    }
+
+
+def escrever_log_resumido(caminho, titulo_erros, erros, linhas_sucesso, linhas_falha, resultado_final, consolidacao_mensal=None):
     with open(caminho, "w", encoding="utf-8") as log:
-        log.write(f"=== NOVA EXECUÃ‡ÃƒO: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+        log.write(f"=== NOVA EXECUÇÃO: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===\n")
         log.write(f"{titulo_erros}\n")
         if erros:
             for linha, erro in erros:
                 log.write(f"Linha {linha} - {erro}\n")
         else:
             log.write("Nenhum erro encontrado.\n")
-        log.write(f"\nâœ”ï¸ Registros com sucesso: {linhas_sucesso}\n")
-        log.write(f"âŒ Registros com falha: {linhas_falha}\n")
-        log.write(f"ðŸ“ Planilha gerada: {resultado_final}\n")
+        log.write(f"\n✔️ Registros com sucesso: {linhas_sucesso}\n")
+        log.write(f"❌ Registros com falha: {linhas_falha}\n")
+        log.write(f"📁 Planilha gerada: {resultado_final}\n")
+        if consolidacao_mensal:
+            log.write(f"\nArquivo individual gerado:\n{resultado_final}\n")
+            for sistema in ("AD", "MS"):
+                info = consolidacao_mensal.get(sistema, {})
+                if info.get("erro"):
+                    log.write(f"\nFalha ao atualizar arquivo mensal do {sistema}: {info['erro']}\n")
+                    continue
+                if info.get("encontrados", 0) == 0:
+                    log.write(f"\nNenhum resultado SIM encontrado para o {sistema} nesta execução.\n")
+                    continue
+                log.write(f"\nArquivo mensal {sistema}:\n{info.get('arquivo', '')}\n")
+                log.write(f"Novas linhas adicionadas ao arquivo {sistema}:\n{info.get('adicionados', 0)}\n")
+                log.write(f"Registros atualizados por identificacao repetida no {sistema}:\n{info.get('duplicados', 0)}\n")
 
 
-def escrever_logs_finais(resumo, resultado_final):
+def escrever_logs_finais(resumo, resultado_final, consolidacao_mensal=None):
     total_linhas = resumo["total_linhas"]
     sucesso_identidade = resumo["linhas_processadas"]
     falha_identidade = total_linhas - sucesso_identidade
     erros_identidade = resumo.get("erros_identidade", [])
     escrever_log_resumido(
         os.path.join(script_dir, "Logs_BuscarNome.txt"),
-        "-- ERROS NA EXECUÃ‡ÃƒO --",
+        "-- ERROS NA EXECUÇÃO --",
         erros_identidade,
         sucesso_identidade,
         falha_identidade,
         resultado_final,
+        consolidacao_mensal,
     )
 
     sucesso_auth = resumo.get("MS_SUCESSO", 0) + resumo.get("AD_SUCESSO", 0)
@@ -1125,11 +1494,12 @@ def escrever_logs_finais(resumo, resultado_final):
     erros_auth = resumo.get("erros_autenticacao", [])
     escrever_log_resumido(
         os.path.join(script_dir, "Logs_testarCredenciais.txt"),
-        "-- ERROS NA EXECUÃ‡ÃƒO --",
+        "-- ERROS NA EXECUÇÃO --",
         erros_auth,
         sucesso_auth,
         falha_auth,
         resultado_final,
+        consolidacao_mensal,
     )
 
 
@@ -1156,17 +1526,30 @@ def main():
         resumo["termino"] = datetime.now()
         wb_saida = criar_workbook_saida(ws)
         salvar_atomicamente(wb_saida, resultado_final)
-        escrever_logs_finais(resumo, resultado_final)
-        print("\nðŸ“Š Resumo final")
-        print(f"ðŸ“ Arquivo final: {resultado_final}")
-        print(f"âœ… Identidades resolvidas: {resumo['linhas_processadas']}")
-        print(f"âš ï¸ Linhas ignoradas: {resumo['linhas_ignoradas']}")
-        print(f"ðŸŸ¢ MS sucesso: {resumo.get('MS_SUCESSO', 0)}")
-        print(f"ðŸŸ¢ AD sucesso: {resumo.get('AD_SUCESSO', 0)}")
-        print("ðŸ ExecuÃ§Ã£o concluÃ­da.")
+        consolidacao_mensal = atualizar_consolidacoes_mensais(ws, resumo["termino"])
+        escrever_logs_finais(resumo, resultado_final, consolidacao_mensal)
+        for sistema in ("AD", "MS"):
+            info = consolidacao_mensal.get(sistema, {})
+            print(f"\n{sistema}:")
+            print(f"Resultados SIM encontrados nesta execução: {info.get('encontrados', 0)}")
+            print(f"Novas linhas adicionadas: {info.get('adicionados', 0)}")
+            print(f"Registros atualizados por identificacao repetida neste mes: {info.get('duplicados', 0)}")
+            if info.get("erro"):
+                print(f"Falha ao atualizar arquivo mensal: {info['erro']}")
+            elif info.get("arquivo"):
+                print(f"Arquivo mensal: {info['arquivo']}")
+            else:
+                print("Arquivo mensal: não criado nesta execução")
+        print("\n📊 Resumo final")
+        print(f"📁 Arquivo final: {resultado_final}")
+        print(f"✅ Identidades resolvidas: {resumo['linhas_processadas']}")
+        print(f"⚠️ Linhas ignoradas: {resumo['linhas_ignoradas']}")
+        print(f"🟢 MS sucesso: {resumo.get('MS_SUCESSO', 0)}")
+        print(f"🟢 AD sucesso: {resumo.get('AD_SUCESSO', 0)}")
+        print("🏁 Execução concluída.")
         return 0
     except Exception as exc:
-        print(f"ðŸ’¥ Erro fatal: {exc}")
+        print(f"💥 Erro fatal: {exc}")
         return 1
     finally:
         if cliente_api:
@@ -1175,5 +1558,3 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
-
-

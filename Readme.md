@@ -1,54 +1,57 @@
-# 🔐 Automação de Validação de Credenciais e Coleta de Dados
+# CredenciaisFullV3
 
-Este projeto automatiza a **validação de credenciais de usuários** e a **coleta de dados funcionais**, utilizando uma planilha Excel como entrada e gerando resultados atualizados com logs detalhados. Ele é usado para validar credenciais coletadas por meio de OSINT e suas respectivas validações em sistemas institucionais.
+Sistema em Python para processar planilhas de credenciais, resolver identidades, testar acessos em sistemas internos e gerar relatórios consolidados.
 
-🔒 **Observação de Segurança**
-- Este projeto interage com sistemas institucionais internos e utiliza APIs privadas. Seu uso é restrito a ambientes autorizados, seguindo políticas rígidas de privacidade e segurança da informação. URLs dos sistemas e APIs foram mascaradas neste projeto público para preservar a confidencialidade.
+## Para que este projeto foi feito
 
-## 🚀 Funcionalidades
+Este projeto foi criado para automatizar a análise de credenciais obtidas através de ferramentas de OSINT. O objetivo é aumentar a celeridade do processo de identificação de credenciais com acesso ao ambiente corporativo que foram vazadas, e bloquear acessos ao ambiente interno, reduzindo possibilidades de ataques.
 
-- **Consulta de dados funcionais** (CPF, Nome Completo e E-mail Institucional) a partir de:
-  - Registro de Empregado (RE)
-  - E-mail institucional
-- **Testes automáticos de login**:
-  - Sistemas que utilizam senhas do Módulo de Segurança 
-  - Sistemas que utilizam senhas do Active Directory
-- **Atualização em lote da planilha Excel**:
-  - Marca visual (verde/vermelho) para indicar sucesso e falha.
-  - Mensagens detalhadas para cada tentativa de autenticação.
-- **Geração de logs** com contadores de sucesso/falha e detalhes de erros.
-- **Limpeza automática** de arquivos intermediários após a execução.
 
-## ⚙️ Tecnologias Utilizadas
+## Problema que o projeto resolve
 
-- **Python 3**
-- requests: Integração com APIs
-- subprocess: Consultas LDAP com dsquery
-- selenium: Testes automatizados de login
-- openpyxl: Manipulação de arquivos Excel
-- urllib3: Gerenciamento de conexões HTTP
+Em análises manuais de credenciais, normalmente é necessário:
 
-## 🗂️ Estrutura dos Arquivos
+- conferir CPF, RE ou e-mail;
+- consultar sistemas internos para descobrir nome e e-mail funcional;
+- verificar se a senha ainda concede acesso;
+- separar acessos válidos de acessos inválidos;
+- evitar duplicidade em relatórios mensais;
+- manter histórico de identificações;
+- produzir logs para auditoria.
 
-- `Credenciais.xlsx`: Planilha original com as credenciais.
-- `Logs_BuscarNome.txt`: Log da coleta de dados (CPF, Nome, E-mail).
-- `Logs_testarCredenciais.txt`: Log dos testes de login.
-- `Credenciais_<data>.xlsx`: Resultado final com marcações e status.
+Esse processo é repetitivo, sujeito a erros e pode consumir muito tempo quando há muitas linhas na planilha.
 
-## 📈 Fluxo de Funcionamento
+O `ConcultaCredenciais` automatiza esse fluxo, padroniza os resultados e gera arquivos prontos para consulta e acompanhamento.
 
-1️⃣ **Coleta de Dados**
-   - Lê a planilha `Credenciais.xlsx`.
-   - Consulta a API usando o RE ou o e-mail institucional.
-   - Preenche as colunas CPF, Nome Completo e E-mail Funcional.
+## Principais funcionalidades
 
-2️⃣ **Testes de Login**
-   - Utiliza Selenium para automatizar o login nos sistemas MS e AD.
-   - Atualiza a planilha com:
-     - Status de sucesso/falha.
-     - Mensagens detalhadas sobre o resultado do login.
+- Leitura da planilha com dados brutos colhidos via OSINT.
+- Normalização de CPF e RE.
+- Resolução de identidade por CPF, RE ou e-mail.
+- Consulta a APIs internas para buscar CPF, nome, e-mail e situação legal.
+- Busca complementar no Active Directory via ferramentas de domínio.
+- Teste automatizado de login nos sistemas MS e AD com Selenium.
+- Retentativa automática em caso de erro técnico ou resultado inconclusivo.
+- Cache de autenticação por `CPF + senha + sistema` durante a execução.
+- Cache de situação legal por CPF durante a execução.
+- Remoção de linhas sem dados testáveis.
+- Geração de planilha individual de resultado.
+- Atualização de planilha mensal consolidada.
+- Preservação de campos manuais na planilha mensal.
+- Logs separados para resumo de execução e auditoria técnica.
 
-3️⃣ **Finalização**
-   - Salva a planilha atualizada com data/hora no nome.
-   - Registra logs completos da execução.
-   - Remove arquivos temporários.
+## Tecnologias usadas
+
+- Python
+- OpenPyXL
+- Selenium WebDriver
+- Requests
+- PyInstaller
+- Active Directory / dsquery
+- APIs REST internas
+- Microsoft Excel
+
+## Resumo
+
+O `ConsultaCredenciais` automatiza o processo de identificação e validação de credenciais, reduzindo esforço manual, padronizando resultados, aumentando a celeridade em processos de cibersegurança e gerando relatórios mensais úteis para acompanhamento e auditoria.
+
